@@ -1,32 +1,33 @@
 
 <i>For data security reasons a person may use the real name or a pseudonym.</i>
 <h2>Members currently active:</h2>
-<b>Joel Palmius</b> (Sweden)
-- community administrator, programming, art, documentation
-
-<b>Aranuvir</b> (Germany)
-- community moderator, programming
-
-<b>Elvaerwyn</b> (Canada)
-- community moderator, art, targets, documentation, programming, QSS, site
-
-<b>Jonas Hauquier aka duststorm</b> (Belgium)
-- community moderator, programming
-
-<b>Loki1950</b> (Canada)
-- community moderator
 
 <b>Punkduck</b> (Germany)
-- community moderator, programming, art, documentation
+- community moderator, programming, art, documentation, MH2 site maintainer
+
+<b>Elvaerwyn aka Licentyius</b> (Canada)
+- community moderator, art, targets, documentation, programming, QSS, MH2 dev & site maintainer, videos
+
+<b>Joel Palmius</b> (Sweden)
+- community administrator, programming, art, documentation, Makehuman for Blender
+
+<b>Aranuvir</b> (Germany)
+- legacy community moderator, programming
+
+<b>Jonas Hauquier aka duststorm</b> (Belgium)
+- legacy community moderator, programming
+
+<b>Loki1950</b> (Canada)
+- legacy community moderator
 
 <b>Ricardo2020</b> (United States)
-- community moderator
+- legacy community moderator
 
 <b>RobBaer</b> (United States)
-- community moderator, programming, documentation
+- legacy community moderator, programming, documentation
 
 <b>Tomcat</b> (Russia)
-- community moderator
+- legacy community moderator
 
 <b>J. Jones</b> (United States)
 - OSX version and help with documentation

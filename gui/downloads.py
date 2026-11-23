@@ -1,6 +1,6 @@
 """
     License information: data/licenses/makehuman_license.txt
-    Author: black-punkduck, Elvaerwyn_MH2 2026 V1.2
+    Author: black-punkduck, Elvaerwyn_MH2 2026 V1.3(github/mirror changes)
 
     Classes:
     * DownLoadImport
@@ -458,7 +458,7 @@ class DownLoadImport(QVBoxLayout):
         if not (url.startswith("ftp:") or url.startswith("http:") or url.startswith("https:")):
             ErrorBox(self.parent, "URL must start with a known protocol [http, https, ftp]")
             return
-        filename = os.path.split(url)[1]
+        filename = os.path.split(url)
 
         if self.bckproc == None:
             tempdir = self.assets.tempDir()
@@ -474,18 +474,47 @@ class DownLoadImport(QVBoxLayout):
             self.bckproc.finished.connect(self.finishLoad)
 
     def par_listdownload(self, bckproc, *args):
-        destination = args[0][0]
-        destination2 = args[0][1]
-        self.error = None
-        i = 0
-        for fname in  self.env.release_info["url_assetlist"],  self.env.release_info["url_assetpacklist"]:
-            dest = args[0][i]
-            i += 1
-            self.prog_window.setValueAndText(0, "Download " + fname + " to " + dest)
-            loaded, text = self.assets.getUrlFile(fname, dest, responsefunc=self.displayProgress)
-            self.error = text
-            if loaded is False:
+        """
+        Download lists with automatic fallback to the GitHub Legacy Vault mirror.
+        """
+        downloads = [
+            (
+                self.env.release_info["url_assetlist"],
+                self.env.release_info.get("url_assetlist_mirror"),
+                self.assetlistpath
+            ),
+            (
+                self.env.release_info["url_assetpacklist"],
+                self.env.release_info.get("url_assetpacklist_mirror"),
+                self.assetpacklistpath
+            )
+        ]
+
+        cnt = 0
+        sources_used = []
+        for primary_url, mirror_url, dest in downloads:
+            filename = os.path.split(primary_url)[1]
+            self.prog_window.setValueAndText(cnt, "Downloading " + filename)
+
+            loaded, text = self.assets.getUrlFile(primary_url, dest, responsefunc=self.displayProgress)
+            if loaded:
+                self.env.logLine(1, f"[Asset List] Downloaded {filename} from PRIMARY: {primary_url}")
+                sources_used.append(f"{filename}: Primary")
+            elif mirror_url:
+                self.env.logLine(1, f"[Asset List] Primary failed for {filename}, falling back to GITHUB MIRROR: {mirror_url}")
+                self.prog_window.setValueAndText(cnt, "Primary server unavailable, trying Legacy Vault mirror for " + filename)
+                loaded, text = self.assets.getUrlFile(mirror_url, dest, responsefunc=self.displayProgress)
+                if loaded:
+                    self.env.logLine(1, f"[Asset List] Downloaded {filename} from GITHUB MIRROR: {mirror_url}")
+                    sources_used.append(f"{filename}: GitHub Mirror")
+
+            if not loaded:
+                self.error = text
                 return
+            cnt += 100
+
+        if bckproc:
+            bckproc.finishmsg = "Download finished:\n" + "\n".join(sources_used)
 
     def listDownLoad(self):
         if self.bckproc == None:
@@ -498,86 +527,71 @@ class DownLoadImport(QVBoxLayout):
             self.bckproc.finished.connect(self.finishListLoad)
 
     def par_thumb_cache_download(self, bckproc, *args):
-        """Processes the background task to safely cache missing thumbnails without crashing."""
-        if self.assetjson is None:
-            self.assetjson = self.assets.alistReadJSON(self.env, self.assetlistpath)
-            
-        if not self.assetjson:
-            self.error = "Asset list cache is empty. Please download lists first."
-            return
-
+        """Downloads and extracts the bulk thumbnail zip from the GitHub Release."""
         self.error = None
-        
-        # 1. Gather all tasks, safely skipping entries with missing 'files' structures
-        all_tasks = []
-        for key, rec in self.json.items():
-            if isinstance(rec, dict):
-                files_dict = rec.get("files")
-                if isinstance(files_dict, dict):
-                    thumb_url = files_dict.get("thumb")
-                    if thumb_url:
-                        all_tasks.append((key, thumb_url))
-
-        if not all_tasks:
+        thumb_zip_url = self.env.release_info.get("url_thumbarchive")
+        if not thumb_zip_url:
+            self.error = "url_thumbarchive is missing in data/makehuman2_version.json"
             return
 
-        # 2. Filter out files that you ALREADY have on your hard drive
-        needed_tasks = []
-        for asset_key, thumb_url in all_tasks:
-            display_title = self.json[asset_key].get("title", asset_key)
-            
-            # Match our clean .thumb extension naming layout
-            if display_title.lower().endswith(".png"):
-                thumb_filename = display_title[:-4] + ".thumb"
-            else:
-                thumb_filename = display_title + ".thumb"
-                
-            dest_file = os.path.join(self.env.path_userdata, "downloads", self.env.basename, "render", thumb_filename)
-            
-            if not os.path.exists(dest_file):
-                needed_tasks.append((asset_key, thumb_url, dest_file))
+        render_dir = os.path.join(self.env.path_userdata, "downloads", self.env.basename, "render")
+        os.makedirs(render_dir, exist_ok=True)
+        tempdir = self.assets.tempDir()
+        zip_dest = os.path.join(tempdir, "library_thumbs.zip")
 
-        # 3. IF EVERYTHING IS ALREADY DOWNLOADED, EXIT GRACEFULLY!
-        if not needed_tasks:
-            if hasattr(bckproc, 'associated_window') and bckproc.associated_window:
-                bckproc.associated_window.setValueAndText(1000, "Cache is already 100% up to date!")
-            elif self.prog_window:
-                self.prog_window.setValueAndText(1000, "Cache is already 100% up to date!")
-                
-            self.bckproc.finishmsg = "Your thumbnail cache is already complete! No downloads were needed."
+        if self.prog_window:
+            self.prog_window.setValueAndText(0, "Downloading thumbnail archive from Legacy Vault...")
+
+        loaded, text = self.assets.getUrlFile(thumb_zip_url, zip_dest, responsefunc=self.displayProgress)
+        if not loaded:
+            self.error = text or "Failed to download thumbnail archive."
             return
 
-        total_count = len(needed_tasks)
-        self.env.logLine(1, f"Syncing cache: downloading {total_count} missing thumbnails.")
+        import zipfile
+        import shutil
+        from opengl.texture import MH_Thumb
 
-        # 4. Download ONLY the missing files
-        for idx, (asset_key, thumb_url, dest_file) in enumerate(needed_tasks):
-            display_title = self.json[asset_key].get("title", asset_key)
-            progress_percent = int((idx / total_count) * 1000)
-            
-            # Send progress updates to the progress window box
-            msg_text = f"Caching Thumbs ({idx}/{total_count}): {display_title}"
-            if hasattr(bckproc, 'associated_window') and bckproc.associated_window:
-                bckproc.associated_window.setValueAndText(progress_percent, msg_text)
-            elif self.prog_window:
-                self.prog_window.setValueAndText(progress_percent, msg_text)
+        try:
+            with zipfile.ZipFile(zip_dest, 'r') as zf:
+                members = [m for m in zf.namelist() if not m.endswith('/')]
+                total = len(members)
+                thumb_engine = MH_Thumb()
 
-            try:
-                os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-                loaded, text = self.assets.getUrlFile(thumb_url, dest_file)
-                
-                # Apply OpenGL rescale pass instantly so pictures render smoothly offline
-                if loaded and os.path.exists(dest_file):
-                    from opengl.texture import MH_Thumb
-                    thumb_engine = MH_Thumb()
+                for idx, member in enumerate(members):
+                    fname = os.path.basename(member)
+                    if not fname:
+                        continue
+
+                    if fname.lower().endswith(".png"):
+                        fname = fname[:-4] + ".thumb"
+                    elif not fname.lower().endswith(".thumb"):
+                        fname = fname + ".thumb"
+
+                    dest_file = os.path.join(render_dir, fname)
+
+                    if idx % 25 == 0 and self.prog_window and total > 0:
+                        pct = int((idx / total) * 1000)
+                        self.prog_window.setValueAndText(pct, f"Extracting thumbnails ({idx}/{total})...")
+
+                    with zf.open(member) as src, open(dest_file, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+
                     thumb_engine.rescale(dest_file)
-            except Exception as e:
-                self.env.logLine(1, f"Failed caching thumbnail for {display_title}: {str(e)}")
+
+        except Exception as e:
+            self.error = f"Error extracting thumbnails: {str(e)}"
+        finally:
+            try:
+                if os.path.exists(zip_dest):
+                    os.remove(zip_dest)
+                if os.path.exists(tempdir) and not os.listdir(tempdir):
+                    os.rmdir(tempdir)
+            except Exception:
+                pass
 
     def syncAllThumbnailsCall(self):
-        """Initializes the background worker process thread to synchronize the local image files workspace."""
+        """Starts the fast bulk thumbnail archive download and extraction."""
         if self.bckproc is None:
-            # Ensure asset lists are established in memory before running lookups
             if self.assetjson is None:
                 self.assetjson = self.assets.alistReadJSON(self.env, self.assetlistpath)
                 if isinstance(self.assetjson, list):
@@ -587,12 +601,12 @@ class DownLoadImport(QVBoxLayout):
 
             self.prog_window = MHProgWindow("Synchronizing Thumbnail Cache", 1000)
             self.prog_window.progress.forceShow()
-            
-            # Spawn task tracking inside your native parallel processing wrapper
+
             self.bckproc = WorkerThread(self.par_thumb_cache_download, None)
-            self.bckproc.finishmsg = "Thumbnail database cache synchronized successfully!"
-            self.bckproc.finished.connect(self.finishListLoad)  # Standard cleanup loop reuse
+            self.bckproc.finishmsg = "Thumbnail cache extracted and synchronized!"
+            self.bckproc.finished.connect(self.finishListLoad)
             self.bckproc.start()
+
 
 
     def par_filesdownload(self, bckproc, *args):
